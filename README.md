@@ -6,7 +6,7 @@
 ## 2. Responsibilities
 - In this project, my primary responsibilities included:
   - **Database Management**: Developed and maintained the database schema in MySQL and MongoDB with other teammates.
-  - **Data Analyzing**: Designed and implemented MongoDB aggregation pipelines to generate event performance reports, calculating total tickets sold, revenue, and average ratings for a specified date range. Exported these reports as CSV files for detailed analysis.
+  - **SQL Query Optimization**: Designed and implemented SQL Query to generate event performance reports, calculating total tickets sold, revenue, and average ratings for a specified date range. Exported these reports as CSV files for detailed analysis.
   - **Front-end Development**: Created prototypes for user and administrator features with Budibase.
   - **Testing and Debugging**: Conducted thorough testing for all the user and administrator features, identified bugs, and resolved issues to ensure application stability and usability.
 - My teammates included:
@@ -157,4 +157,45 @@ Once logged in, Event Organizers are redirected to their **Dashboard**, which ha
 #### -(2) Administrator Dashboard
 Once logged in, Administrators are redirected to their **Homepage**, where they can access the event performance report page:
 
-- **Generate Event Performance Report**: Generate and save a summary report of event performance for a specified date range, including details like total tickets sold, revenue generated, and average rating per event. Export the report as a CSV file based on the date range and selected events.
+- **Generate Event Performance Report**: Generate and save a summary report of event performance for a specified date range. The administrator can select a start date and end date, then generate the event performance report for that period in the Report table. The report includes key details such as total tickets sold, revenue generated, and the average rating per event. This report helps assess the success of events and identify trends over time.
+  - SQL Queries Used:
+     ```sql
+    DELIMITER //
+    
+    CREATE PROCEDURE GenerateEventPerformanceReport(IN startDate DATE, IN endDate DATE)
+    BEGIN
+        TRUNCATE TABLE Report;
+    
+        INSERT INTO Report (event_id, event_name, ticket_sold, revenue, avg_rating, event_date)
+        SELECT e.event_id,
+               e.event_name,
+               CASE 
+                   WHEN e.event_status = 'Canceled' THEN 0 
+                   ELSE COALESCE(ticket_data.total_tickets_sold, 0) 
+               END AS ticket_sold,
+               CASE 
+                   WHEN e.event_status = 'Canceled' THEN 0 
+                   ELSE COALESCE(ticket_data.total_revenue, 0) 
+               END AS revenue,
+               COALESCE(AVG(r.rating), 0) AS avg_rating,
+               e.date AS event_date
+        FROM Event e
+        LEFT JOIN (
+            SELECT t.event_id,
+                   SUM(ot.quantity_purchase) AS total_tickets_sold,
+                   SUM(t.price * ot.quantity_purchase) AS total_revenue
+            FROM OrderTicket ot
+            INNER JOIN `Order` o ON ot.order_id = o.order_id
+            INNER JOIN Ticket t ON ot.ticket_id = t.ticket_id
+            WHERE o.order_status = 'Completed'
+              AND o.purchase_date BETWEEN startDate AND endDate
+            GROUP BY t.event_id
+        ) AS ticket_data ON e.event_id = ticket_data.event_id
+        LEFT JOIN Review r ON e.event_id = r.event_id
+        GROUP BY e.event_id, e.event_name, e.date;
+    
+        SELECT * FROM Report;
+    END //
+    
+    DELIMITER ;
+
